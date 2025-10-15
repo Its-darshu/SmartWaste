@@ -24,15 +24,47 @@ def health_check():
 
 @app.route('/api/reports', methods=['GET'])
 def get_reports():
-    """Get all waste reports"""
+    """Get waste reports with role-based filtering"""
     try:
+        # Verify Firebase Auth token
+        auth_header = request.headers.get('Authorization')
+        user_role = 'user'  # Default role
+        user_id = None
+        
+        if auth_header and auth_header.startswith('Bearer '):
+            try:
+                token = auth_header.split('Bearer ')[1]
+                decoded_token = auth.verify_id_token(token)
+                user_id = decoded_token['uid']
+                
+                # Get user role from Firestore
+                user_doc = db.collection('users').document(user_id).get()
+                if user_doc.exists:
+                    user_role = user_doc.to_dict().get('role', 'user')
+            except:
+                pass  # Continue with default role if token is invalid
+
         # Get query parameters
         category = request.args.get('category')
         status = request.args.get('status')
+        assigned_to = request.args.get('assignedTo')
         limit = int(request.args.get('limit', 50))
 
-        # Build query
+        # Build query based on user role
         reports_ref = db.collection('wasteReports')
+        
+        # Role-based filtering
+        if user_role == 'cleaner':
+            # Cleaners see only reports assigned to them or unassigned reports
+            if assigned_to:
+                reports_ref = reports_ref.where('assignedTo', '==', assigned_to)
+            else:
+                reports_ref = reports_ref.where('assignedTo', '==', user_id)
+        elif user_role == 'user':
+            # Users see only their own reports
+            if user_id:
+                reports_ref = reports_ref.where('reportedBy', '==', user_id)
+        # Admins see all reports (no additional filtering)
         
         if category:
             reports_ref = reports_ref.where('category', '==', category)
@@ -56,7 +88,8 @@ def get_reports():
         return jsonify({
             'success': True,
             'data': reports,
-            'count': len(reports)
+            'count': len(reports),
+            'userRole': user_role
         })
 
     except Exception as e:
@@ -254,36 +287,176 @@ def get_user_profile():
             'error': str(e)
         }), 500
 
-@app.route('/api/stats', methods=['GET'])
-def get_stats():
-    """Get system statistics"""
+@app.route('/api/reports/<report_id>/assign', methods=['PUT'])
+def assign_report(report_id):
+    """Assign a report to a cleaner (Admin only)"""
     try:
-        # Get total reports count
-        total_reports = len(list(db.collection('wasteReports').stream()))
+        # Verify Firebase Auth token
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+        token = auth_header.split('Bearer ')[1]
+        decoded_token = auth.verify_id_token(token)
+        user_id = decoded_token['uid']
+
+        # Check if user is admin
+        user_doc = db.collection('users').document(user_id).get()
+        if not user_doc.exists or user_doc.to_dict().get('role') != 'admin':
+            return jsonify({'success': False, 'error': 'Admin access required'}), 403
+
+        # Get request data
+        data = request.get_json()
+        cleaner_id = data.get('cleanerId')
         
-        # Get reports by status
-        pending_reports = len(list(db.collection('wasteReports').where('status', '==', 'Pending').stream()))
-        in_progress_reports = len(list(db.collection('wasteReports').where('status', '==', 'In Progress').stream()))
-        resolved_reports = len(list(db.collection('wasteReports').where('status', '==', 'Resolved').stream()))
-        
-        # Get reports by category
-        categories = ['Garbage Overflow', 'Illegal Dumping', 'Recycling Issue', 'Hazardous Waste', 'Dead Animal', 'Other']
-        category_stats = {}
-        for category in categories:
-            count = len(list(db.collection('wasteReports').where('category', '==', category).stream()))
-            category_stats[category] = count
+        if not cleaner_id:
+            return jsonify({'success': False, 'error': 'Cleaner ID required'}), 400
+
+        # Update report
+        report_ref = db.collection('wasteReports').document(report_id)
+        report_ref.update({
+            'assignedTo': cleaner_id,
+            'status': 'In Progress',
+            'updatedAt': firestore.SERVER_TIMESTAMP
+        })
 
         return jsonify({
             'success': True,
-            'data': {
-                'totalReports': total_reports,
-                'statusStats': {
-                    'pending': pending_reports,
-                    'inProgress': in_progress_reports,
-                    'resolved': resolved_reports
-                },
-                'categoryStats': category_stats
+            'message': 'Report assigned successfully'
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/cleaners', methods=['GET'])
+def get_cleaners():
+    """Get list of cleaners (Admin only)"""
+    try:
+        # Verify Firebase Auth token
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+        token = auth_header.split('Bearer ')[1]
+        decoded_token = auth.verify_id_token(token)
+        user_id = decoded_token['uid']
+
+        # Check if user is admin
+        user_doc = db.collection('users').document(user_id).get()
+        if not user_doc.exists or user_doc.to_dict().get('role') != 'admin':
+            return jsonify({'success': False, 'error': 'Admin access required'}), 403
+
+        # Get all cleaners
+        cleaners = []
+        users_ref = db.collection('users').where('role', '==', 'cleaner')
+        for doc in users_ref.stream():
+            cleaner_data = doc.to_dict()
+            cleaners.append({
+                'uid': cleaner_data['uid'],
+                'displayName': cleaner_data.get('displayName', 'Unknown'),
+                'email': cleaner_data.get('email', '')
+            })
+
+        return jsonify({
+            'success': True,
+            'data': cleaners
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/stats', methods=['GET'])
+def get_stats():
+    """Get system statistics with role-based data"""
+    try:
+        # Verify Firebase Auth token
+        auth_header = request.headers.get('Authorization')
+        user_role = 'user'
+        user_id = None
+        
+        if auth_header and auth_header.startswith('Bearer '):
+            try:
+                token = auth_header.split('Bearer ')[1]
+                decoded_token = auth.verify_id_token(token)
+                user_id = decoded_token['uid']
+                
+                user_doc = db.collection('users').document(user_id).get()
+                if user_doc.exists:
+                    user_role = user_doc.to_dict().get('role', 'user')
+            except:
+                pass
+
+        # Get statistics based on role
+        if user_role == 'admin':
+            # Admin gets full system stats
+            total_reports = len(list(db.collection('wasteReports').stream()))
+            pending_reports = len(list(db.collection('wasteReports').where('status', '==', 'Pending').stream()))
+            in_progress_reports = len(list(db.collection('wasteReports').where('status', '==', 'In Progress').stream()))
+            resolved_reports = len(list(db.collection('wasteReports').where('status', '==', 'Resolved').stream()))
+            
+            # Get user counts
+            total_users = len(list(db.collection('users').stream()))
+            total_cleaners = len(list(db.collection('users').where('role', '==', 'cleaner').stream()))
+            
+        elif user_role == 'cleaner':
+            # Cleaner gets stats for assigned reports
+            assigned_reports = list(db.collection('wasteReports').where('assignedTo', '==', user_id).stream())
+            total_reports = len(assigned_reports)
+            pending_reports = len([r for r in assigned_reports if r.to_dict().get('status') == 'Pending'])
+            in_progress_reports = len([r for r in assigned_reports if r.to_dict().get('status') == 'In Progress'])
+            resolved_reports = len([r for r in assigned_reports if r.to_dict().get('status') == 'Resolved'])
+            
+        else:  # user
+            # User gets stats for their own reports
+            user_reports = list(db.collection('wasteReports').where('reportedBy', '==', user_id).stream()) if user_id else []
+            total_reports = len(user_reports)
+            pending_reports = len([r for r in user_reports if r.to_dict().get('status') == 'Pending'])
+            in_progress_reports = len([r for r in user_reports if r.to_dict().get('status') == 'In Progress'])
+            resolved_reports = len([r for r in user_reports if r.to_dict().get('status') == 'Resolved'])
+
+        # Get reports by category (for all roles)
+        categories = ['Garbage Overflow', 'Illegal Dumping', 'Recycling Issue', 'Hazardous Waste', 'Dead Animal', 'Other']
+        category_stats = {}
+        for category in categories:
+            if user_role == 'admin':
+                count = len(list(db.collection('wasteReports').where('category', '==', category).stream()))
+            elif user_role == 'cleaner':
+                count = len(list(db.collection('wasteReports')
+                            .where('assignedTo', '==', user_id)
+                            .where('category', '==', category).stream()))
+            else:  # user
+                count = len(list(db.collection('wasteReports')
+                            .where('reportedBy', '==', user_id)
+                            .where('category', '==', category).stream())) if user_id else 0
+            category_stats[category] = count
+
+        stats_data = {
+            'totalReports': total_reports,
+            'statusStats': {
+                'pending': pending_reports,
+                'inProgress': in_progress_reports,
+                'resolved': resolved_reports
+            },
+            'categoryStats': category_stats,
+            'userRole': user_role
+        }
+
+        # Add admin-specific stats
+        if user_role == 'admin':
+            stats_data['userStats'] = {
+                'totalUsers': total_users,
+                'totalCleaners': total_cleaners
             }
+
+        return jsonify({
+            'success': True,
+            'data': stats_data
         })
 
     except Exception as e:

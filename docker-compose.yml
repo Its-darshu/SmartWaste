@@ -1,0 +1,66 @@
+version: '3.8'
+services:
+  smartwaste-user:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.user
+    ports:
+      - "3001:80"
+    environment:
+      - REACT_APP_ROLE=user
+      - REACT_APP_APP_NAME=SmartWaste - Report Waste
+      - REACT_APP_PRIMARY_COLOR=#3498db
+      - REACT_APP_FEATURES=report,track
+    networks:
+      - smartwaste-network
+
+  smartwaste-cleaner:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.cleaner
+    ports:
+      - "3002:80"
+    environment:
+      - REACT_APP_ROLE=cleaner
+      - REACT_APP_APP_NAME=SmartWaste - Cleaner Portal
+      - REACT_APP_PRIMARY_COLOR=#27ae60
+      - REACT_APP_FEATURES=assignments,update,navigate
+    networks:
+      - smartwaste-network
+
+  smartwaste-admin:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.admin
+    ports:
+      - "3003:80"
+    environment:
+      - REACT_APP_ROLE=admin
+      - REACT_APP_APP_NAME=SmartWaste - Admin Panel
+      - REACT_APP_PRIMARY_COLOR=#e74c3c
+      - REACT_APP_FEATURES=manage,assign,analytics,users
+    networks:
+      - smartwaste-network
+
+  smartwaste-backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=production
+      - PORT=5000
+    networks:
+      - smartwaste-network
+    depends_on:
+      - smartwaste-user
+      - smartwaste-cleaner
+      - smartwaste-admin
+
+networks:
+  smartwaste-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
