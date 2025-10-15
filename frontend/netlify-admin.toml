@@ -1,0 +1,23 @@
+[build]
+  command = "npm run build:admin"
+  publish = "build"
+
+[build.environment]
+  REACT_APP_ROLE = "admin"
+  REACT_APP_APP_NAME = "SmartWaste - Admin Panel"
+  REACT_APP_PRIMARY_COLOR = "#e74c3c"
+  REACT_APP_FEATURES = "manage,assign,analytics,users"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    X-XSS-Protection = "1; mode=block"
+    Referrer-Policy = "no-referrer"
+    Feature-Policy = "microphone 'none'; camera 'none'"

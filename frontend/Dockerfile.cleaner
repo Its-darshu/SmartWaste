@@ -1,0 +1,20 @@
+# Cleaner Dashboard Dockerfile
+FROM node:18-alpine as builder
+
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+
+COPY . .
+ENV REACT_APP_ROLE=cleaner
+ENV REACT_APP_APP_NAME="SmartWaste - Cleaner Portal"
+ENV REACT_APP_PRIMARY_COLOR="#27ae60"
+ENV REACT_APP_FEATURES="assignments,update,navigate"
+
+RUN npm run build
+
+FROM nginx:alpine
+COPY --from=builder /app/build /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/nginx.conf
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]

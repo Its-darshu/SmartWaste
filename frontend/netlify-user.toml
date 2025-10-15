@@ -1,0 +1,23 @@
+[build]
+  command = "npm run build:user"
+  publish = "build"
+
+[build.environment]
+  REACT_APP_ROLE = "user"
+  REACT_APP_APP_NAME = "SmartWaste - Report Waste"
+  REACT_APP_PRIMARY_COLOR = "#3498db"
+  REACT_APP_FEATURES = "report,track"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    X-XSS-Protection = "1; mode=block"
+    Referrer-Policy = "no-referrer"
+    Feature-Policy = "microphone 'none'; camera 'none'"

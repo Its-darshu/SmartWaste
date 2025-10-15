@@ -1,0 +1,23 @@
+[build]
+  command = "npm run build:cleaner"
+  publish = "build"
+
+[build.environment]
+  REACT_APP_ROLE = "cleaner"
+  REACT_APP_APP_NAME = "SmartWaste - Cleaner Portal"
+  REACT_APP_PRIMARY_COLOR = "#27ae60"
+  REACT_APP_FEATURES = "assignments,update,navigate"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    X-XSS-Protection = "1; mode=block"
+    Referrer-Policy = "no-referrer"
+    Feature-Policy = "microphone 'none'; camera 'none'"
